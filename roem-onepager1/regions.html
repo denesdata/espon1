@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Disparități PIB în UE</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+    <script src="https://unpkg.com/flubber@0.4.2"></script>
+    <script src="https://unpkg.com/intersection-observer"></script>
+    <link rel="stylesheet" href="https://roem-html.csaladen.es/style/grafana/dark.css">
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #141e30;
+            background: linear-gradient(to bottom right, #141e30, #243b55);
+            color: #d8d9da;
+        }
+        
+        #container {
+            display: flex;
+            position: relative;
+        }
+
+        #vis {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #scrolly {
+            position: relative;
+            flex: 1;
+            padding: 1rem;
+        }
+
+        article {
+            padding: 0 1rem;
+            max-width: 35rem;
+            margin: 0 auto;
+        }
+
+        .step {
+            margin: 0 auto 80vh auto;
+            padding: 1rem;
+            background: rgba(20, 30, 48, 0.7);
+            border: 1px solid rgba(204, 204, 220, 0.15);
+            border-radius: 3px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .step.is-active {
+            background: rgba(20, 30, 48, 0.85);
+            border-color: rgba(204, 204, 220, 0.25);
+        }
+
+        .step p {
+            margin: 0.5rem 0;
+            font-size: 1.2rem;
+            line-height: 1.6;
+            color: #d8d9da;
+        }
+
+        /* Custom overrides for NUTS-2 visualization */
+        .scroll-canvas {
+            background: #141e30;
+            background: linear-gradient(to bottom right, #141e30, #243b55);
+        }
+
+        .panel-container {
+            background: #141e30;
+            background: linear-gradient(to bottom right, #141e30, #243b55);
+            border-color: #141e30;
+        }
+
+        .map-container {
+            background: rgba(0, 0, 0, 0);
+        }
+
+        .legend text {
+            fill: #d8d9da;
+            font-family: Coda;
+        }
+
+        .tooltip {
+            background: rgba(0, 0, 0, 0.6);
+            color: #d8d9da;
+            font-family: Coda;
+        }
+
+        /* Chart styles */
+        .axis text {
+            fill: #d8d9da;
+            font-size: 12px;
+        }
+
+        .axis line, .axis path {
+            stroke: rgba(204, 204, 220, 0.15);
+        }
+
+        .gdp-line {
+            stroke: rgba(204, 204, 220, 0.5);
+            stroke-dasharray: 4,4;
+        }
+
+        .capital-label {
+            fill: #d8d9da;
+            font-size: 11px;
+            pointer-events: none;
+        }
+
+        .capital {
+            fill: #98FB98;
+            stroke: rgba(204, 204, 220, 0.25);
+            stroke-width: 1;
+        }
+
+        .country {
+            stroke: rgba(204, 204, 220, 0.15);
+            stroke-width: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="vis"></div>
+        <div id="scrolly">
+            <article>
+                <div class="step" data-step="1">
+                    <p>Această hartă arată PIB-ul pe cap de locuitor (PPP) în regiunile NUTS-2 ale UE. Culorile mai calde indică o producție economică mai mare pe persoană, dezvăluind disparitățile de bogăție la nivel regional.</p>
+                    <p>Observați nu doar diviziunea tradițională nord-sud, ci și diferențele semnificative între regiunile aceleiași țări.</p>
+                </div>
+                <div class="step" data-step="2">
+                    <p>Regiunile care găzduiesc capitalele (evidențiate în verde) tind să aibă un PIB per capita semnificativ mai mare decât restul regiunilor țării lor.</p>
+                    <p>Această concentrare a bogăției în jurul capitalelor este un fenomen comun în UE, dar intensitatea sa variază considerabil între țări.</p>
+                </div>
+                <div class="step" data-step="3">
+                    <p>Privind mai atent regiunile capitale, observăm că acestea depășesc semnificativ media regională a țărilor lor.</p>
+                    <p>De exemplu, București-Ilfov are un PIB per capita de peste trei ori mai mare decât media celorlalte regiuni din România, în timp ce disparitatea este mai moderată în țări precum Germania.</p>
+                </div>
+                <div class="step" data-step="4">
+                    <p>Să reorganizăm datele pentru a vizualiza mai bine aceste disparități regionale.</p>
+                    <p>Fiecare punct reprezintă o regiune, cu regiunile capitale marcate distinct. Liniile verticale indică media națională, evidențiind cât de mult se distanțează fiecare regiune de aceasta.</p>
+                </div>
+                <div class="step" data-step="5">
+                    <p>Acest model de concentrare economică în regiunile capitale ridică întrebări importante despre dezvoltarea teritorială echilibrată în UE.</p>
+                    <p>În timp ce unele țări reușesc să mențină disparități regionale moderate, altele prezintă diferențe extreme între regiunile lor capitale și restul teritoriului.</p>
+                </div>
+            </article>
+        </div>
+    </div>
+
+    <script>
+        const width = 900;
+        const height = 600;
+        const margin = { top: 50, right: 50, bottom: 50, left: 150 };
+        let countryPaths = [];
+        let isCircle = false;
+        let xScale, yScale;  // Declare scales at top level
+
+        // Create projection
+        const projection = d3.geoNaturalEarth1()
+            .center([15, 55])
+            .scale(700)  // Add explicit scale
+            .translate([width / 2, height / 2]);
+
+        // Create path generator
+        const path = d3.geoPath()
+            .projection(projection);
+
+        // Create SVG
+        const svg = d3.select("#vis")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        // Replace the existing GDP data structure with NUTS-2 format
+        const nutsGDPperCapita = {
+            // Austria (generally high PPP values)
+            "AT13": { name: "Wien", gdp: 47100, isCapital: true, country: "Austria" },
+            "AT12": { name: "Niederösterreich", gdp: 33200, isCapital: false, country: "Austria" },
+            "AT11": { name: "Burgenland", gdp: 29800, isCapital: false, country: "Austria" },
+            "AT21": { name: "Kärnten", gdp: 31500, isCapital: false, country: "Austria" },
+            "AT22": { name: "Steiermark", gdp: 34100, isCapital: false, country: "Austria" },
+            "AT31": { name: "Oberösterreich", gdp: 38400, isCapital: false, country: "Austria" },
+            "AT32": { name: "Salzburg", gdp: 43800, isCapital: false, country: "Austria" },
+            "AT33": { name: "Tirol", gdp: 39600, isCapital: false, country: "Austria" },
+            "AT34": { name: "Vorarlberg", gdp: 40900, isCapital: false, country: "Austria" },
+
+            // Belgium
+            "BE10": { name: "Région de Bruxelles-Capitale", gdp: 58300, isCapital: true, country: "Belgium" },
+            "BE21": { name: "Antwerpen", gdp: 43700, isCapital: false, country: "Belgium" },
+            "BE22": { name: "Limburg", gdp: 31200, isCapital: false, country: "Belgium" },
+            "BE23": { name: "Oost-Vlaanderen", gdp: 33900, isCapital: false, country: "Belgium" },
+            "BE24": { name: "Vlaams-Brabant", gdp: 37800, isCapital: false, country: "Belgium" },
+            "BE25": { name: "West-Vlaanderen", gdp: 35100, isCapital: false, country: "Belgium" },
+            "BE31": { name: "Brabant wallon", gdp: 38900, isCapital: false, country: "Belgium" },
+            "BE32": { name: "Hainaut", gdp: 24900, isCapital: false, country: "Belgium" },
+            "BE33": { name: "Liège", gdp: 27100, isCapital: false, country: "Belgium" },
+            "BE34": { name: "Luxembourg", gdp: 26000, isCapital: false, country: "Belgium" },
+            "BE35": { name: "Namur", gdp: 26500, isCapital: false, country: "Belgium" },
+
+            // France
+            "FR10": { name: "Île de France", gdp: 51200, isCapital: true, country: "France" },
+            "FR21": { name: "Champagne-Ardenne", gdp: 27800, isCapital: false, country: "France" },
+            "FR22": { name: "Picardie", gdp: 24900, isCapital: false, country: "France" },
+            "FR23": { name: "Haute-Normandie", gdp: 28200, isCapital: false, country: "France" },
+            "FR24": { name: "Centre", gdp: 26900, isCapital: false, country: "France" },
+            "FR30": { name: "Nord-Pas-de-Calais", gdp: 25800, isCapital: false, country: "France" },
+
+            // Germany
+            "DE30": { name: "Berlin", gdp: 36300, isCapital: true, country: "Germany" },
+            "DE11": { name: "Stuttgart", gdp: 47800, isCapital: false, country: "Germany" },
+            "DE12": { name: "Karlsruhe", gdp: 41700, isCapital: false, country: "Germany" },
+            "DE21": { name: "Oberbayern", gdp: 52100, isCapital: false, country: "Germany" },
+            "DE60": { name: "Hamburg", gdp: 61200, isCapital: false, country: "Germany" },
+
+            // Spain (lower PPP values compared to nominal GDP)
+            "ES30": { name: "Comunidad de Madrid", gdp: 35900, isCapital: true, country: "Spain" },
+            "ES21": { name: "País Vasco", gdp: 33800, isCapital: false, country: "Spain" },
+            "ES22": { name: "Comunidad Foral de Navarra", gdp: 32900, isCapital: false, country: "Spain" },
+            "ES51": { name: "Cataluña", gdp: 31200, isCapital: false, country: "Spain" },
+            "ES52": { name: "Comunidad Valenciana", gdp: 23800, isCapital: false, country: "Spain" },
+
+            // Italy
+            "ITI43": { name: "Roma", gdp: 37100, isCapital: true, country: "Italy" },
+            "ITC4": { name: "Lombardia", gdp: 36800, isCapital: false, country: "Italy" },
+            "ITH3": { name: "Veneto", gdp: 32100, isCapital: false, country: "Italy" },
+            "ITC1": { name: "Piemonte", gdp: 30200, isCapital: false, country: "Italy" },
+            "ITH5": { name: "Emilia-Romagna", gdp: 35000, isCapital: false, country: "Italy" },
+
+            // Netherlands
+            "NL32": { name: "Noord-Holland", gdp: 49200, isCapital: true, country: "Netherlands" },
+            "NL31": { name: "Utrecht", gdp: 46800, isCapital: false, country: "Netherlands" },
+            "NL33": { name: "Zuid-Holland", gdp: 39500, isCapital: false, country: "Netherlands" },
+            "NL41": { name: "Noord-Brabant", gdp: 40300, isCapital: false, country: "Netherlands" },
+
+            // Poland (significantly lower PPP values)
+            "PL91": { name: "Warszawski stołeczny", gdp: 29500, isCapital: true, country: "Poland" },
+            "PL21": { name: "Małopolskie", gdp: 17900, isCapital: false, country: "Poland" },
+            "PL22": { name: "Śląskie", gdp: 19600, isCapital: false, country: "Poland" },
+            "PL51": { name: "Dolnośląskie", gdp: 20800, isCapital: false, country: "Poland" },
+
+            // Sweden
+            "SE11": { name: "Stockholm", gdp: 49900, isCapital: true, country: "Sweden" },
+            "SE12": { name: "Östra Mellansverige", gdp: 34500, isCapital: false, country: "Sweden" },
+            "SE22": { name: "Sydsverige", gdp: 35600, isCapital: false, country: "Sweden" },
+            "SE23": { name: "Västsverige", gdp: 36700, isCapital: false, country: "Sweden" },
+
+            // Romania (significantly lower PPP values compared to Western Europe)
+            "RO32": { name: "Bucuresti-Ilfov", gdp: 44500, isCapital: true, country: "Romania" },
+            "RO11": { name: "Nord-Vest", gdp: 16800, isCapital: false, country: "Romania" },
+            "RO12": { name: "Centru", gdp: 17200, isCapital: false, country: "Romania" },
+            "RO21": { name: "Nord-Est", gdp: 11300, isCapital: false, country: "Romania" },
+            "RO22": { name: "Sud-Est", gdp: 14900, isCapital: false, country: "Romania" },
+            "RO31": { name: "Sud-Muntenia", gdp: 14800, isCapital: false, country: "Romania" },
+            "RO41": { name: "Sud-Vest Oltenia", gdp: 13900, isCapital: false, country: "Romania" },
+            "RO42": { name: "Vest", gdp: 19000, isCapital: false, country: "Romania" }
+        };
+
+        // Update the data loading section with error handling
+        d3.json("nuts2_gdppps17_topo.json")
+            .then(function(europe) {
+                console.log("Loaded topology:", europe); // Debug: Check loaded data
+                
+                // Convert TopoJSON to GeoJSON using the correct object name "foo"
+                const nuts2Regions = topojson.feature(europe, europe.objects.foo);
+                
+                // Draw regions
+                svg.selectAll("path.region")
+                    .data(nuts2Regions.features)
+                    .join("path")
+                    .attr("class", "region country")
+                    .attr("d", path)
+                    .style("fill", d => {
+                        // Use the gdppps17 property from the topology
+                        const gdpValue = d.properties.gdppps17;
+                        return gdpValue ? colorScale(gdpValue) : "#ccc";
+                    })
+                    .style("stroke", "rgba(204, 204, 220, 0.15)");
+            })
+            .catch(error => {
+                console.error("Error loading or processing the topology:", error);
+            });
+
+        // Create scales for scatter plot
+        xScale = d3.scaleLinear()
+            .domain([0, d3.max(Object.values(nutsGDPperCapita).map(d => Math.max(d.capital, d.rest)))])
+            .range([margin.left, width - margin.right]);
+
+        // Calculate differences and sort countries
+        const countryDifferences = Object.entries(nutsGDPperCapita)
+            .map(([country, gdp]) => ({
+                country,
+                difference: gdp.capital - gdp.rest
+            }))
+            .sort((a, b) => b.difference - a.difference);  // Sort by largest difference first
+
+        // Separate regular and outlier countries
+        const outlierCountries = ["Ireland", "Luxembourg"];
+        const regularCountries = countryDifferences
+            .filter(d => !outlierCountries.includes(d.country))
+            .map(d => d.country);
+        const allCountriesOrdered = [...regularCountries, ...outlierCountries];
+
+        // Update yScale to include a gap
+        yScale = d3.scaleBand()
+            .domain(allCountriesOrdered)
+            .range([margin.top, height - margin.bottom])
+            .padding(1);
+
+        // Calculate the position for the separator line
+        const separatorY = (yScale(outlierCountries[0]) + yScale(regularCountries[regularCountries.length-1])) / 2;
+
+        function addAxes() {
+            svg.selectAll(".axis").remove();
+
+            // Add separator line
+            svg.append("line")
+                .attr("class", "axis separator-line")
+                .attr("x1", margin.left)
+                .attr("x2", width - margin.right)
+                .attr("y1", separatorY)
+                .attr("y2", separatorY)
+                .style("stroke", "#999")
+                .style("stroke-width", 1)
+                .style("stroke-dasharray", "4,4");  // Optional: makes the line dashed
+
+            svg.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(0,${height - margin.bottom})`)
+                .call(d3.axisBottom(xScale)
+                    .ticks(5)
+                    .tickFormat(d => `$${d/1000}k`));
+
+            svg.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(${margin.left},0)`)
+                .call(d3.axisLeft(yScale));
+        }
+
+        function removeAxes() {
+            svg.selectAll(".axis").remove();
+        }
+
+        function addScatterPoints() {
+            // Group data by country
+            const groupedData = Object.entries(nutsGDPperCapita)
+                .reduce((acc, [id, data]) => {
+                    if (!acc[data.country]) {
+                        acc[data.country] = {
+                            regions: [],
+                            capital: null
+                        };
+                    }
+                    if (data.isCapital) {
+                        acc[data.country].capital = { id, ...data };
+                    }
+                    acc[data.country].regions.push({ id, ...data });
+                    return acc;
+                }, {});
+
+            // Calculate country statistics
+            Object.values(groupedData).forEach(country => {
+                country.mean = d3.mean(country.regions, r => r.gdp);
+                country.max = d3.max(country.regions, r => r.gdp);
+                country.min = d3.min(country.regions, r => r.gdp);
+            });
+
+            // Flatten data for plotting
+            const plotData = Object.entries(groupedData).flatMap(([country, data]) => 
+                data.regions.map(region => ({
+                    ...region,
+                    countryMean: data.mean,
+                    countryMax: data.max,
+                    countryMin: data.min
+                }))
+            );
+
+            // Update scales
+            xScale = d3.scaleLinear()
+                .domain([0, d3.max(plotData, d => d.gdp)])
+                .range([margin.left, width - margin.right]);
+
+            yScale = d3.scalePoint()
+                .domain(Object.keys(groupedData))
+                .range([margin.top, height - margin.bottom])
+                .padding(0.5);
+
+            // Add country mean lines
+            svg.selectAll(".country-mean")
+                .data(Object.entries(groupedData))
+                .join("line")
+                .attr("class", "country-mean")
+                .attr("x1", d => xScale(d[1].mean))
+                .attr("x2", d => xScale(d[1].mean))
+                .attr("y1", d => yScale(d[0]) - 20)
+                .attr("y2", d => yScale(d[0]) + 20)
+                .style("stroke", "#999")
+                .style("stroke-dasharray", "4,4");
+
+            // Add scatter points
+            svg.selectAll(".region-point")
+                .data(plotData)
+                .join("circle")
+                .attr("class", d => `region-point ${d.isCapital ? 'capital' : ''}`)
+                .attr("cx", d => xScale(d.gdp))
+                .attr("cy", d => yScale(d.country))
+                .attr("r", d => d.isCapital ? 8 : 5)
+                .style("fill", d => d.isCapital ? "#98FB98" : "#666")
+                .style("opacity", 0.7)
+                .on("mouseover", function(event, d) {
+                    d3.select(this)
+                        .style("opacity", 1)
+                        .attr("r", d.isCapital ? 10 : 7);
+                    // Add tooltip here if desired
+                })
+                .on("mouseout", function(event, d) {
+                    d3.select(this)
+                        .style("opacity", 0.7)
+                        .attr("r", d.isCapital ? 8 : 5);
+                });
+
+            // Add region labels for capitals
+            svg.selectAll(".capital-label")
+                .data(plotData.filter(d => d.isCapital))
+                .join("text")
+                .attr("class", "capital-label")
+                .attr("x", d => xScale(d.gdp) + 10)
+                .attr("y", d => yScale(d.country))
+                .text(d => d.name)
+                .style("fill", "#d8d9da")
+                .style("font-size", "12px")
+                .style("opacity", 0)
+                .transition()
+                .duration(1000)
+                .style("opacity", 1);
+        }
+
+        function removeScatterPoints() {
+            svg.selectAll(".gdp-line, .capital-city-label")
+                .transition()
+                .duration(500)
+                .style("opacity", 0)
+                .remove();
+        }
+
+        function getLargestPolygonPath(country) {
+            if (country.geometry.type === "MultiPolygon") {
+                const polygons = country.geometry.coordinates.map(coords => ({
+                    type: "Feature",
+                    geometry: {
+                        type: "Polygon",
+                        coordinates: coords
+                    }
+                }));
+                const areas = polygons.map(poly => path.area(poly));
+                const largestIndex = areas.indexOf(Math.max(...areas));
+                return path(polygons[largestIndex]);
+            }
+            return path(country);
+        }
+
+        // Update the color scale to use the actual GDP values from the topology
+        const colorScale = d3.scaleQuantile()
+            .domain([0, 100]) // Adjust domain based on gdppps17 values (0-100)
+            .range(["#fff5eb", "#fee6ce", "#fdd0a2", "#fdae6b", "#fd8d3c", "#f16913", "#d94801", "#8c2d04"]);
+
+        // Add capital labels
+        function addCapitalLabels() {
+            svg.selectAll(".capital-label")
+                .data(Object.entries(nutsGDPperCapita))
+                .join("text")
+                .attr("class", "capital-label")
+                .attr("x", d => projection(d[1])[0] + 10)
+                .attr("y", d => projection(d[1])[1])
+                .text(d => d[0])
+                .style("opacity", 0)
+                .style("font-size", "11px")
+                .style("font-family", "Coda");
+        }
+
+        // Function to transform shapes
+        function transformShape() {
+            isCircle = !isCircle;
+            
+            if (isCircle) {
+                addAxes();
+                
+                // Calculate positions for circles based on GDP data
+                const circleData = nuts2Regions.features.map(d => {
+                    const gdpValue = d.properties.gdppps17;
+                    const nutsId = d.properties.NUTS_ID;
+                    const regionData = nutsGDPperCapita[nutsId] || {
+                        gdp: gdpValue,
+                        isCapital: false,
+                        country: d.properties.CNTR_CODE
+                    };
+                    
+                    return {
+                        ...d,
+                        properties: {
+                            ...d.properties,
+                            ...regionData
+                        },
+                        targetX: xScale(gdpValue),
+                        targetY: yScale(d.properties.CNTR_CODE)
+                    };
+                });
+
+                // Transform paths to circles
+                svg.selectAll("path.region")
+                    .data(circleData)
+                    .transition()
+                    .duration(2000)
+                    .attrTween("d", function(d) {
+                        const currentPath = d3.select(this).attr("d");
+                        const targetCircle = `M${d.targetX},${d.targetY} m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0`;
+                        
+                        return flubber.interpolate(currentPath, targetCircle, {
+                            maxSegmentLength: 2
+                        });
+                    })
+                    .style("fill", d => d.properties.isCapital ? "#98FB98" : "#666");
+
+                addScatterPoints();
+            } else {
+                removeAxes();
+                
+                // Transform back to map
+                svg.selectAll("path.region")
+                    .data(nuts2Regions.features)
+                    .transition()
+                    .duration(2000)
+                    .attrTween("d", function(d) {
+                        const currentPath = d3.select(this).attr("d");
+                        const targetPath = path(d);
+                        
+                        return flubber.interpolate(currentPath, targetPath, {
+                            maxSegmentLength: 2
+                        });
+                    })
+                    .style("fill", d => colorScale(d.properties.gdppps17));
+            }
+
+            // Handle labels
+            svg.selectAll(".capital-label")
+                .transition()
+                .duration(2000)
+                .style("opacity", isCircle ? 1 : 0)
+                .attr("x", d => isCircle ? xScale(d.gdp) + 10 : projection(d.centroid)[0])
+                .attr("y", d => isCircle ? yScale(d.country) : projection(d.centroid)[1]);
+        }
+
+        let currentStep = 1;
+        
+        // Add a variable to track previous step
+        let previousStep = 1;
+
+        // Using Intersection Observer to detect which step is in view
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const step = parseInt(entry.target.dataset.step);
+                    if (currentStep !== step) {
+                        previousStep = currentStep;
+                        currentStep = step;
+                        updateVis(step, previousStep);
+                    }
+                }
+            });
+        }, { threshold: 0.5 });
+
+        // Observe all steps
+        document.querySelectorAll('.step').forEach(step => {
+            observer.observe(step);
+        });
+
+        function updateVis(step, previousStep) {
+            switch(step) {
+                case 1:
+                case 2:
+                    // Hide capitals
+                    svg.selectAll("circle.capital, .capital-label")
+                        .transition()
+                        .duration(1000)
+                        .style("opacity", 0);
+                    break;
+
+                case 3:
+                    // Show capitals
+                    svg.selectAll("circle.capital, .capital-label")
+                        .transition()
+                        .duration(1000)
+                        .style("opacity", 1);
+                    break;
+
+                case 4:
+                    // Transform to scatter plot
+                    if (!isCircle) transformShape();
+                    break;
+
+                case 5:
+                    // Highlight outliers
+                    svg.selectAll(".separator-line")
+                        .transition()
+                        .duration(1000)
+                        .style("opacity", 1);
+                    break;
+            }
+
+            // Handle transition back from scatter plot
+            if (previousStep === 4 && step === 3) {
+                // Update label positions for map
+                svg.selectAll(".capital-label")
+                    .transition()
+                    .duration(2000)
+                    .attr("x", d => projection(d[1])[0] + 10)
+                    .attr("y", d => projection(d[1])[1]);
+            }
+        }
+    </script>
+</body>
+</html>

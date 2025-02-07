@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Europe Choropleth Map</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+    <script src="https://unpkg.com/d3-interpolate-path@2.2.3/build/d3-interpolate-path.min.js"></script>
+    <style>
+        .country {
+            fill: #ccc;
+            stroke: #fff;
+            stroke-width: 0.5;
+        }
+        .country:hover {
+            fill-opacity: 0.7;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            padding: 5px;
+            border: 1px solid #ddd;
+            display: none;
+        }
+        .container {
+            display: flex;
+        }
+        
+        .point {
+            fill: steelblue;
+        }
+        
+        .line {
+            stroke: #999;
+            stroke-width: 1;
+        }
+        
+        .axis-label {
+            font-size: 12px;
+        }
+
+        .button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .button:hover {
+            background-color: #45a049;
+        }
+
+        #scatter {
+            display: none;  /* Initially hidden */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="map"></div>
+        <div id="scatter"></div>
+    </div>
+    <button class="button" onclick="transformVisualization()">Transform to Scatter</button>
+
+    <script>
+        // Move all shared variables to the top level scope
+        const width = 900;
+        const height = 600;
+        const margin = {top: 20, right: 30, bottom: 30, left: 120};
+        let isScatterView = false;
+        let svg;  // Declare svg at top level
+        let path;  // Declare path at top level
+        const gdpData = {
+            "Austria": {capital: 54900, other: 40800},
+            "Belgium": {capital: 71000, other: 35600},
+            "Bulgaria": {capital: 23800, other: 8900},
+            "Croatia": {capital: 23900, other: 13800},
+            "Cyprus": {capital: 28500, other: 28500},
+            "Czech Republic": {capital: 56200, other: 23900},
+            "Denmark": {capital: 64500, other: 48700},
+            "Estonia": {capital: 30900, other: 17800},
+            "Finland": {capital: 57100, other: 38900},
+            "France": {capital: 85600, other: 31900},
+            "Germany": {capital: 41800, other: 40700},
+            "Greece": {capital: 22800, other: 15900},
+            "Hungary": {capital: 28900, other: 15200},
+            "Ireland": {capital: 89300, other: 45100},
+            "Italy": {capital: 46200, other: 29800},
+            "Latvia": {capital: 23000, other: 12900},
+            "Lithuania": {capital: 25400, other: 16800},
+            "Luxembourg": {capital: 118900, other: 118900},
+            "Malta": {capital: 28900, other: 28900},
+            "Netherlands": {capital: 63500, other: 41900},
+            "Poland": {capital: 43100, other: 17800},
+            "Portugal": {capital: 33600, other: 19800},
+            "Romania": {capital: 29900, other: 12800},
+            "Slovakia": {capital: 38300, other: 19100},
+            "Slovenia": {capital: 32900, other: 22800},
+            "Spain": {capital: 35900, other: 25800},
+            "Sweden": {capital: 53400, other: 42100}
+        };
+
+        // Create projection at top level
+        const projection = d3.geoMercator()
+            .center([15, 52])
+            .scale(500)
+            .translate([width / 2, height / 2]);
+
+        // Create path generator at top level
+        path = d3.geoPath()
+            .projection(projection);
+
+        // Define the transformation function at top level
+        function transformVisualization() {
+            isScatterView = !isScatterView;
+            
+            if (isScatterView) {
+                // Prepare scatter plot data
+                const scatterData = Object.entries(gdpData).map(([country, values]) => ({
+                    country: country,
+                    average: (values.capital + values.other) / 2,
+                    value1: values.capital,
+                    value2: values.other
+                })).sort((a, b) => b.value1 - a.value1);
+
+                const countries = scatterData.map(d => d.country);
+                
+                // Create scales
+                const xScale = d3.scaleLinear()
+                    .domain([0, d3.max(scatterData, d => Math.max(d.value1, d.value2))])
+                    .range([margin.left, width - margin.right]);
+
+                const yScale = d3.scaleBand()
+                    .domain(countries)
+                    .range([margin.top, height - margin.bottom])
+                    .padding(1);
+
+                // Create a circle path generator for morphing
+                const circleRadius = 4;
+                const circlePathGenerator = d => {
+                    const country = d.properties.NAME;
+                    const scatterPoint = scatterData.find(d => d.country === country);
+                    if (!scatterPoint) return "";
+                    
+                    const cx = xScale(scatterPoint.average);
+                    const cy = yScale(country);
+                    return `M ${cx-circleRadius},${cy} a ${circleRadius},${circleRadius} 0 1,0 ${circleRadius*2},0 a ${circleRadius},${circleRadius} 0 1,0 ${-circleRadius*2},0`;
+                };
+
+                // Morph map paths to circles
+                svg.selectAll("path")
+                    .transition()
+                    .duration(2000)
+                    .attrTween("d", function(d) {
+                        const start = this.getAttribute("d");
+                        const end = circlePathGenerator(d);
+                        return function(t) {
+                            // During the first half of the transition, shrink the path to its centroid
+                            // During the second half, expand the circle from the centroid
+                            if (t < 0.5) {
+                                const scale = 1 - (t * 2);
+                                const centroid = path.centroid(d);
+                                return `M ${centroid[0]},${centroid[1]} l ${scale},${scale} l ${-scale*2},0 l ${scale},${-scale} z`;
+                            } else {
+                                const scale = (t - 0.5) * 2;
+                                const country = d.properties.NAME;
+                                const scatterPoint = scatterData.find(d => d.country === country);
+                                if (!scatterPoint) return "";
+                                const cx = xScale(scatterPoint.average);
+                                const cy = yScale(country);
+                                return `M ${cx-circleRadius*scale},${cy} a ${circleRadius*scale},${circleRadius*scale} 0 1,0 ${circleRadius*2*scale},0 a ${circleRadius*scale},${circleRadius*scale} 0 1,0 ${-circleRadius*2*scale},0`;
+                            }
+                        };
+                    })
+                    .style("fill", "steelblue")
+                    .on("end", function() {
+                        // After morphing completes, add the scatter plot elements
+                        addScatterPlotElements(svg, scatterData, xScale, yScale);
+                    });
+
+                // Update button text
+                d3.select(".button").text("Transform to Map");
+            } else {
+                // Remove scatter plot elements
+                svg.selectAll(".scatter-element")
+                    .transition()
+                    .duration(1000)
+                    .style("opacity", 0)
+                    .remove();
+
+                // Transform circles back to map regions
+                createMap();
+                
+                // Update button text
+                d3.select(".button").text("Transform to Scatter");
+            }
+        }
+
+        function addScatterPlotElements(svg, scatterData, xScale, yScale) {
+            // Add axes with transitions
+            svg.append("g")
+                .attr("class", "scatter-element x-axis")
+                .attr("transform", `translate(0,${height - margin.bottom})`)
+                .style("opacity", 0)
+                .transition()
+                .duration(1000)
+                .style("opacity", 1)
+                .call(d3.axisBottom(xScale));
+
+            svg.append("g")
+                .attr("class", "scatter-element y-axis")
+                .attr("transform", `translate(${margin.left},0)`)
+                .style("opacity", 0)
+                .transition()
+                .duration(1000)
+                .style("opacity", 1)
+                .call(d3.axisLeft(yScale));
+
+            // Add lines with transitions
+            svg.selectAll(".line")
+                .data(scatterData)
+                .enter()
+                .append("line")
+                .attr("class", "scatter-element line")
+                .attr("x1", d => xScale(d.value1))
+                .attr("y1", d => yScale(d.country))
+                .attr("x2", d => xScale(d.value2))
+                .attr("y2", d => yScale(d.country))
+                .style("opacity", 0)
+                .transition()
+                .duration(1000)
+                .style("opacity", 1);
+
+            // Add second point (we already have the first from the morph)
+            svg.selectAll(".point2")
+                .data(scatterData)
+                .enter()
+                .append("circle")
+                .attr("class", "scatter-element point")
+                .attr("cx", d => xScale(d.value2))
+                .attr("cy", d => yScale(d.country))
+                .attr("r", 4)
+                .style("opacity", 0)
+                .transition()
+                .duration(1000)
+                .style("opacity", 1);
+
+            // Add x-axis label
+            svg.append("text")
+                .attr("class", "scatter-element axis-label")
+                .attr("x", width / 2)
+                .attr("y", height - 5)
+                .style("text-anchor", "middle")
+                .style("opacity", 0)
+                .text("GDP per capita (EUR)")
+                .transition()
+                .duration(1000)
+                .style("opacity", 1);
+
+            // Add legend
+            const legend = svg.append("g")
+                .attr("class", "scatter-element")
+                .attr("transform", `translate(${margin.left}, ${margin.top - 10})`)
+                .style("opacity", 0);
+
+            legend.append("circle")
+                .attr("class", "point")
+                .attr("cx", 0)
+                .attr("cy", 0)
+                .attr("r", 4);
+
+            legend.append("text")
+                .attr("x", 10)
+                .attr("y", 4)
+                .text("Capital Region");
+
+            legend.append("circle")
+                .attr("class", "point")
+                .attr("cx", 120)
+                .attr("cy", 0)
+                .attr("r", 4);
+
+            legend.append("text")
+                .attr("x", 130)
+                .attr("y", 4)
+                .text("Other Regions (avg)");
+
+            legend.transition()
+                .duration(1000)
+                .style("opacity", 1);
+        }
+
+        // Define map creation function
+        function createMap() {
+            // Create SVG if it doesn't exist
+            if (!svg) {
+                svg = d3.select("#map")
+                    .append("svg")
+                    .attr("width", width)
+                    .attr("height", height);
+            }
+
+            // Create a projection
+            const projection = d3.geoMercator()
+                .center([15, 52])
+                .scale(500)
+                .translate([width / 2, height / 2]);
+
+            // Create a path generator
+            const path = d3.geoPath()
+                .projection(projection);
+
+            // Create tooltip
+            const tooltip = d3.select("body")
+                .append("div")
+                .attr("class", "tooltip");
+
+            // Create scatter plot SVG
+            const scatterSvg = d3.select("#scatter")
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            // Load and display the map
+            d3.json("https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/TopoJSON/europe.topojson")
+                .then(function(europe) {
+                    // List of EU countries
+                    const euCountries = [
+                        "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus",
+                        "Czech Republic", "Denmark", "Estonia", "Finland", "France",
+                        "Germany", "Greece", "Hungary", "Ireland", "Italy", "Latvia",
+                        "Lithuania", "Luxembourg", "Malta", "Netherlands", "Poland",
+                        "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", "Sweden"
+                    ];
+
+                    // Convert TopoJSON to GeoJSON and filter for EU countries
+                    const europeData = topojson.feature(europe, europe.objects.europe);
+                    europeData.features = europeData.features.filter(d => 
+                        euCountries.includes(d.properties.NAME)
+                    );
+
+                    // Update map data to use average GDP
+                    const mapData = new Map(Object.entries(gdpData).map(([country, values]) => 
+                        [country, (values.capital + values.other) / 2]
+                    ));
+
+                    // Update scatter data format
+                    const scatterData = Object.entries(gdpData).map(([country, values]) => ({
+                        country: country,
+                        value1: values.capital,
+                        value2: values.other
+                    }));
+
+                    // Sort countries by capital region GDP for better visualization
+                    scatterData.sort((a, b) => b.value1 - a.value1);
+                    const countries = scatterData.map(d => d.country);
+
+                    // Update scales
+                    const maxGDP = Math.max(
+                        ...scatterData.map(d => Math.max(d.value1, d.value2))
+                    );
+                    
+                    const xScale = d3.scaleLinear()
+                        .domain([0, maxGDP])
+                        .range([margin.left, width - margin.right]);
+
+                    const yScale = d3.scaleBand()
+                        .domain(countries)
+                        .range([margin.top, height - margin.bottom])
+                        .padding(1);
+
+                    // Create color scale
+                    const colorScale = d3.scaleSequential()
+                        .domain([0, 1])
+                        .interpolator(d3.interpolateBlues);
+
+                    // Draw the map
+                    svg.selectAll("path")
+                        .data(europeData.features)
+                        .enter()
+                        .append("path")
+                        .attr("d", path)
+                        .attr("class", "country")
+                        .style("fill", d => colorScale(mapData.get(d.properties.NAME)))
+                        .on("mouseover", function(event, d) {
+                            tooltip.style("display", "block")
+                                .html(`${d.properties.NAME}<br>Value: ${mapData.get(d.properties.NAME).toFixed(2)}`)
+                                .style("left", (event.pageX + 10) + "px")
+                                .style("top", (event.pageY + 10) + "px");
+                        })
+                        .on("mouseout", function() {
+                            tooltip.style("display", "none");
+                        });
+
+                    // Add axes
+                    scatterSvg.append("g")
+                        .attr("transform", `translate(0,${height - margin.bottom})`)
+                        .call(d3.axisBottom(xScale));
+
+                    scatterSvg.append("g")
+                        .attr("transform", `translate(${margin.left},0)`)
+                        .call(d3.axisLeft(yScale));
+
+                    // Add lines connecting points
+                    scatterSvg.selectAll(".line")
+                        .data(scatterData)
+                        .enter()
+                        .append("line")
+                        .attr("class", "line")
+                        .attr("x1", d => xScale(d.value1))
+                        .attr("y1", d => yScale(d.country))
+                        .attr("x2", d => xScale(d.value2))
+                        .attr("y2", d => yScale(d.country));
+
+                    // Add points
+                    scatterSvg.selectAll(".point1")
+                        .data(scatterData)
+                        .enter()
+                        .append("circle")
+                        .attr("class", "point")
+                        .attr("cx", d => xScale(d.value1))
+                        .attr("cy", d => yScale(d.country))
+                        .attr("r", 4);
+
+                    scatterSvg.selectAll(".point2")
+                        .data(scatterData)
+                        .enter()
+                        .append("circle")
+                        .attr("class", "point")
+                        .attr("cx", d => xScale(d.value2))
+                        .attr("cy", d => yScale(d.country))
+                        .attr("r", 4);
+
+                    // Add x-axis label
+                    scatterSvg.append("text")
+                        .attr("class", "axis-label")
+                        .attr("x", width / 2)
+                        .attr("y", height - 5)
+                        .style("text-anchor", "middle")
+                        .text("GDP per capita (EUR)");
+
+                    // Add legend
+                    const legend = scatterSvg.append("g")
+                        .attr("transform", `translate(${margin.left}, ${margin.top - 10})`);
+
+                    legend.append("circle")
+                        .attr("class", "point")
+                        .attr("cx", 0)
+                        .attr("cy", 0)
+                        .attr("r", 4);
+
+                    legend.append("text")
+                        .attr("x", 10)
+                        .attr("y", 4)
+                        .text("Capital Region");
+
+                    legend.append("circle")
+                        .attr("class", "point")
+                        .attr("cx", 120)
+                        .attr("cy", 0)
+                        .attr("r", 4);
+
+                    legend.append("text")
+                        .attr("x", 130)
+                        .attr("y", 4)
+                        .text("Other Regions (avg)");
+                });
+        }
+
+        // Initialize the visualization when the document is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            createMap();
+        });
+    </script>
+</body>
+</html>
