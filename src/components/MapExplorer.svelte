@@ -5,6 +5,8 @@
   import Section from './Section.svelte';
   import { generateSyntheticData } from '../utils/generateSyntheticData.js';
   import { onDestroy } from 'svelte';
+  import 'leaflet/dist/leaflet.css';
+  import L from 'leaflet';
 
   // Helper to check if a value is effectively empty (NaN, null, 0, etc)
   function isEmptyValue(value) {

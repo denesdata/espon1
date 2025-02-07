@@ -13,9 +13,6 @@
   import DataTable from './components/DataTable.svelte';
   import BeeswarmPlot from './components/BeeswarmPlot.svelte';
   import HeatmapView from './components/HeatmapView.svelte';
-  import L from 'leaflet';
-  import 'leaflet/dist/leaflet.css';
-  import 'https://unpkg.com/leaflet.sync/L.Map.Sync.js';
   import { onMount } from 'svelte';
 
   const navigationTabs = [
@@ -43,6 +40,18 @@
     categories: 5,
     indicators: 12
   };
+
+  let tabsContainer;
+  
+  function scrollTabs(direction) {
+    if (tabsContainer) {
+      const scrollAmount = 200; // Adjust this value as needed
+      tabsContainer.scrollBy({
+        left: direction * scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  }
 
   onMount(() => {
     // Your Leaflet initialization code here
@@ -80,16 +89,34 @@
         </div>
       </div>
     </header>
-    <nav class="tabs">
-      {#each navigationTabs as tab}
-        <button
-          class:active={activeTab === tab.id}
-          on:click={() => activeTab = tab.id}
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </nav>
+    <div class="tabs-wrapper">
+      <button 
+        class="scroll-button left" 
+        on:click={() => scrollTabs(-1)}
+        aria-label="Scroll tabs left"
+      >
+        ←
+      </button>
+      
+      <nav class="tabs" bind:this={tabsContainer}>
+        {#each navigationTabs as tab}
+          <button
+            class:active={activeTab === tab.id}
+            on:click={() => activeTab = tab.id}
+          >
+            {tab.label}
+          </button>
+        {/each}
+      </nav>
+      
+      <button 
+        class="scroll-button right" 
+        on:click={() => scrollTabs(1)}
+        aria-label="Scroll tabs right"
+      >
+        →
+      </button>
+    </div>
 
     <div class="content">
       {#if activeTab === 'overview'}
@@ -246,14 +273,45 @@
     --border-color: var(--border-light);
   }
 
+  .tabs-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .scroll-button {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    z-index: 10;
+  }
+
+  .scroll-button:hover {
+    background: var(--accent-color);
+    color: white;
+  }
+
   .tabs {
+    flex: 1;
     display: flex;
     gap: 0.5rem;
     padding: 0 1rem;
-    margin-bottom: 2rem;
+    margin-bottom: 0;
     overflow-x: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    scroll-behavior: smooth;
   }
 
   .tabs::-webkit-scrollbar {

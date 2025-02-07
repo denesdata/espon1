@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import L from 'leaflet';
   import 'leaflet/dist/leaflet.css';
+  import L from 'leaflet';
   import * as d3 from 'd3';
   import { theme } from '../stores/theme.js';
   import { generateSyntheticData } from '../utils/generateSyntheticData.js';
@@ -68,9 +68,14 @@
     sliderPosition = Math.max(0, Math.min(100, (x / rect.width) * 100));
   }
 
-  onMount(async () => {
-    initializeMaps();
-    await updateMaps();
+  onMount(() => {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet.sync/L.Map.Sync.js';
+    script.onload = async () => {
+      initializeMaps();
+      await updateMaps();
+    };
+    document.head.appendChild(script);
     
     // Add window event listeners for slider
     window.addEventListener('mousemove', handleMouseMove);

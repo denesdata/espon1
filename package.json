@@ -17,6 +17,7 @@
     "chart.js": "^4.4.7",
     "d3": "^7.9.0",
     "leaflet": "^1.9.4",
+    "leaflet.sync": "^0.2.4",
     "svelte-routing": "^2.13.0",
     "svelte-select": "^5.8.3",
     "topojson-client": "^3.1.0"
