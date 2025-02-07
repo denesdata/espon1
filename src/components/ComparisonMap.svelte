@@ -329,7 +329,14 @@
     <div 
       class="slider-container" 
       bind:this={sliderContainer}
+      role="button"
+      tabindex="0"
       on:mousedown={handleMouseDown}
+      on:keydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          handleMouseDown(e);
+        }
+      }}
     >
       <div 
         class="slider-handle"

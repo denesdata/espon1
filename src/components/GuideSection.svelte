@@ -172,7 +172,7 @@
                         {#each Array(8) as _, j}
                           <div class="matrix-cell" 
                             style="opacity: {0.2 + Math.random() * 0.8}"
-                          />
+                          ></div>
                         {/each}
                       {/each}
                     </div>

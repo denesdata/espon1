@@ -13,7 +13,10 @@
   import DataTable from './components/DataTable.svelte';
   import BeeswarmPlot from './components/BeeswarmPlot.svelte';
   import HeatmapView from './components/HeatmapView.svelte';
+  import L from 'leaflet';
+  import 'leaflet/dist/leaflet.css';
   import 'https://unpkg.com/leaflet.sync/L.Map.Sync.js';
+  import { onMount } from 'svelte';
 
   const navigationTabs = [
     { id: 'overview', label: 'Overview' },
@@ -40,6 +43,11 @@
     categories: 5,
     indicators: 12
   };
+
+  onMount(() => {
+    // Your Leaflet initialization code here
+    // Make sure map container exists before initializing
+  });
 </script>
 
 <main>
@@ -224,13 +232,12 @@
     );
   }
 
-  [data-theme="dark"] {
+  :global([data-theme="dark"]) {
     --bg-hover: rgba(255,255,255,0.05);
     --bg-primary-rgb: 18, 18, 18;
     --bg-secondary-rgb: 30, 30, 30;
     --accent-color-light: #90caf9;
     
-    /* Dark Theme Colors */
     --gradient-start: rgba(18, 18, 18, 0.8);
     --gradient-end: rgba(30, 30, 30, 0.9);
     --card-bg: rgba(30, 30, 30, 0.9);
@@ -278,12 +285,8 @@
     margin-top: 2rem;
   }
 
-  .placeholder {
-    padding: 2rem;
-    text-align: center;
-    background: var(--card-bg);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary);
+  :global(.leaflet-container) {
+    height: 100%;
+    width: 100%;
   }
 </style>

@@ -163,7 +163,7 @@
                 {#each indicators as indicator}
                   {@const values = matrixData.map(d => d[indicator.id])}
                   {@const colorScale = getColorScale(indicator.id, values)}
-                  <td style:background-color={colorScale(row[indicator.id])} />
+                  <td class="your-class-name" style:background-color={colorScale(row[indicator.id])}></td>
                 {/each}
               </tr>
             {/each}
